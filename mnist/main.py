@@ -95,11 +95,12 @@ test_counter = [i*len(train_loader.dataset) for i in range(n_epochs + 1)]
 def train(epoch):
     network.train()
     for batch_idx, (data, target) in enumerate(train_loader):
-        optimizer.zero_grad()  # 清理梯度？？
-        output = network(data)
-        loss = F.nll_loss(output, target)  # nll_loss??
-        loss.backward()
-        optimizer.step()
+        optimizer.zero_grad()  # 每个batch之前清理梯度以确保batch之间的独立性
+        output = network(data)  # 前向传播，得到预测值
+        # negative log likelihood，若网络最后一层用了LogSoftmax则损失函数用这个
+        loss = F.nll_loss(output, target)
+        loss.backward()  # 链式求导法则，对每个参数求偏导
+        optimizer.step()  # 根据计算出的梯度更新模型参数
         if batch_idx % log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
@@ -128,18 +129,42 @@ def test():
         100. * correct / len(test_loader.dataset)))
 
 
+def export_last_to_onnx():
+    network.eval()
+    x = torch.randn(1, 1, 28, 28)
+    torch.onnx.export(network, x, "mnist_conv2d_lr0.01_batch64_epoch3.onnx", input_names=[
+                      'input'], output_names=['output'])
+
+
 test()
 for epoch in range(1, n_epochs + 1):
     train(epoch)
     test()
+export_last_to_onnx()
 
-
-# Visualize result
+# Visualize loss
 plt.figure()
 plt.plot(train_counter, train_losses, color='blue')
 plt.scatter(test_counter, test_losses, color='red')
 plt.legend(['Train Loss', 'Test Loss'], loc='upper right')
 plt.xlabel('number of training examples seen')
 plt.ylabel('negative log likelihood loss')
-plt.savefig("result.png")  # 保存到文件
+plt.savefig("train_and_test_loss.png")  # 保存到文件
+plt.close()
+
+
+# Visualize outputs
+with torch.no_grad():  # 临时关闭梯度计算，提高计算效率
+    output = network(example_data)
+
+plt.figure()
+for i in range(6):
+    plt.subplot(2, 3, i+1)
+    plt.tight_layout()
+    plt.imshow(example_data[i][0], cmap='gray', interpolation='none')
+    plt.title("Prediction: {}".format(
+        output.data.max(1, keepdim=True)[1][i].item()))
+    plt.xticks([])
+    plt.yticks([])
+plt.savefig("predict_result_demo.png")
 plt.close()
